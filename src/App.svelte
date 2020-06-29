@@ -5,6 +5,8 @@
     import * as Ammo from "ammo.js";
     import _ from "lodash";
     import centroid from 'polygon-centroid';
+    import * as turf from "@turf/helpers";
+    import nearestPointOnLine from "@turf/nearest-point-to-line";
     var polygonPolygon = require('intersects/polygon-polygon');
     var pointPolygon = require('intersects/point-polygon');
     var convexHull = require('monotone-convex-hull-2d')
@@ -28,7 +30,28 @@
         name:"square",
         positions: [[1,1],[20,20],[100,100],[150,150],[200,200],[250,200]],
         outline: [[0,0],[100,0],[100,100],[0,100],[0,0]]
-      }
+      },
+      {
+        name:"triangle",
+        positions: [[1,1],[20,20],[100,100],[150,150],[200,200],[250,200]],
+        outline: [[0,0],[565.68,0],[565.68,565.68],[0,0]]
+      },
+      {
+        name:"trapezoid",
+        positions: [[1,1],[20,20],[100,100],[150,150],[200,200],[250,200]],
+        outline: [[0,0],[141.42,0],[141.42,282.82],[0,282.82],[0,0]]
+      },
+      {
+        name:"pentagon",
+        positions: [[1,1],[20,20],[100,100],[150,150],[200,200],[250,200]],
+        outline: [[0,0],[70.71,0],[141.42,141.42],[300,70.71],[0,0]]
+      },
+      {
+        name:"rectangle",
+        positions: [[1,1],[20,20],[100,100],[150,150],[200,200],[250,200]],
+        outline: [[0,0],[200,0],[200,100],[0,100],[0,0]]
+      },
+
     ];
     onMount(() => {
         var canvas = document.getElementById("renderCanvas"); // Get the canvas element
@@ -192,12 +215,12 @@ var showWorldAxis = (size) => {
 
         // Register a render loop to repeatedly render the scene
         engine.runRenderLoop(function () {
-                scene.render();
+            scene.render();
         });
 
         // Watch for browser/canvas resize events
         window.addEventListener("resize", function () {
-                engine.resize();
+            engine.resize();
         });
         var x = 1
         var c = 0
@@ -218,34 +241,129 @@ var showWorldAxis = (size) => {
         let mode = null
         let rotateStartingPoint = null
         let solution = null;
+        let pieceMeshes = {};
         //movingPieceLastGoodPosition = movingPiece.position.clone()
 
-        const checkForCollisions = (meshTwoDVertices) => {
+        const snapToFitTakeOne = (meshTwoDVertices) => {
+            //get movingPiceLines
+            const meshLines = meshTwoDVertices.map((v, vIndex) => {
+                if (vIndex < meshTwoDVertices.length - 1) {
+                    return [v, meshTwoDVertices[vIndex + 1]]
+                }
+            })
+            meshLines.push([meshTwoDVertices[meshTwoDVertices.length - 1], meshTwoDVertices[0]]);
+            const meshMidPoints = meshLines.map((line) => geometric.lineMidPoint(_.flatten(line)))
+
+
+            //get all mesh lines besides moving piece
+            const candidates = [];
+            for (var index = 0; index < scene.meshes.length; index++) {
+                var mesh = scene.meshes[index];
+                if (mesh === mP || mesh.name === meshName || mesh.name === "ground" || mesh.name === "TextPlane" || mesh.name === "axisX" || mesh.name === "axisY" || mesh.name === "axisZ" || mesh.name === "solution") {
+                    continue;
+                }
+                var twoDVertices = getMeshTwoDVertices(mesh);
+                candidates.push(twoDVertices);
+            }
+            const candidateLines = candidates.map((c) => {
+                var lines = c.map((v, vIndex) => {
+                    if (vIndex < c.length - 1) {
+                        return [v, c[vIndex + 1]]
+                    }
+                })
+                lines.push([c[c.length-1], c[0]]);
+                return lines
+            });
+            //find closest line to each mesh line, might need to do closest point on line
+            let closestDistance = Infinity;
+            let closestIndex = null;
+            let closestLine = null;
+            for (var i = candidateLines.length - 1; i >= 0; i--) {
+                const candidate = candidateLines[i];
+                for (var i = meshMidPoints.length - 1; i >= 0; i--) {
+                    const midPoint = meshMidPoints[i];
+                    const distance = nearestPointOnLine(turf.point(midPoint), turf.line(candidate));
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestLine = candidate;
+                        closestIndex = i;
+                    }
+                }
+            }
+            const closestMeshLine = meshLines[closestIndex];
+            //subdivide piece lines into 10 segments
+            // for each segment
+        }
+        const getSlope = (pointA, pointB) => {
+            return ((pointB[1] - pointA[1])/(pointB[0] - pointA[0]));
+        }
+        const getEdges = (vertices) => {
+            const edges = vertices.slice(0,vertices.length -1).map((v, vIndex) => [v, vertices[vIndex + 1]])
+            edges.push([vertices[meshTwoDVertices.length - 1], vertices[0]]);
+            return edges;
+        }
+
+        const snapToFit = (meshTwoDVertices) => {
+            // there are two possibilities: 1 is that one of the moving pieces edges has both a similar slope and is close to the edge of a different mesh
+            // 2 is that one of the vertices on the moving piece is close to one of the edges of the other moved pieces
+            // one hypothosis is that it doesn't matter which we choose from two possibilites, 
+            // maybe have a slider that controls the "magneticness"
+
+            //for possibilty 2
+            // compare slopes of all edges
+            // get distance - will probably have to subdivide line
+
+            // for possibilty one
+            // get distance of each vertix to all edges
+            // find closest point on closest edge
+            // if distance is below cutoff, snap
+
+            // so we need - vertices of moving mesh in 2d world coords, edges of moving mesh in 2d world coords, 
+            const meshEdges = getEdges(meshTwoDVertices);
+            const meshSlopes = meshEdges.map((edge) => getSlope(edge[0], edge[1]));
+            const SLOPE_BUFFER = 0.5;
+            const closestEdge = null;
+            const closestSlopeDifference = Infinity;
+            const closestEdgeDistance = Infinity;
+            const DISTANCE_BUFFER = 5
+            for (var i = pieces.length - 1; i >= 0; i--) {
+                const candidatePiece = pieces[i];
+                for (var k = candidatePiece.slopes.length - 1; k >= 0; k--) {
+                    const candidateSlope = candidatePiece.slopes[k]
+                    for (var j = meshSlopes.length - 1; j >= 0; j--) {
+                        const meshSlope = meshSlopes[j];
+                        const slopeDifference = meshSlope - candidateSlope;
+                        if (slopeDifference < SLOPE_BUFFER && slopeDifference < closestSlopeDifference) {
+                            const distance = 1;
+                            if (distance < closestEdgeDistance) {
+                                closestEdge = i;
+                                closestEdgeDistance = distance;
+                                closestSlopeDifference = slopeDifference;
+                            }
+                        }
+                    }
+                }
+            }
+            if (closestEdge) {
+                //snap piece
+                const angle = Math.tan((1+(closestEdgeSlope * closestMeshSlope))/(meshSlope - closestEdgeSlope));
+                let delta = closestEdgeDistance;
+                // might have to recalculate delta after rotation
+                mesh.rotate(angle);
+                mesh.position.x = Math.cos(delta)
+                mesh.position.z = Math.sin(delta)
+            }
+
+        }
+
+        const checkForCollisions = (meshTwoDVertices, meshName) => {
 
             for (var index = 0; index < scene.meshes.length; index++) {
                 var mesh = scene.meshes[index];
-                if (mesh === mP || mesh.name === "ground" || mesh.name === "TextPlane" || mesh.name === "axisX" || mesh.name === "axisY" || mesh.name === "axisZ" || mesh.name === "solution") {
+                if (mesh === mP || mesh.name === meshName || mesh.name === "ground" || mesh.name === "TextPlane" || mesh.name === "axisX" || mesh.name === "axisY" || mesh.name === "axisZ" || mesh.name === "solution") {
                     continue;
                 }
-                var vertices = _.chunk(mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind), 3);
-                var seen = {};
-                var cMFV = vertices.filter((vertex) => {
-                    var sV = JSON.stringify([vertex[0], vertex[2]]);
-                    var s = !seen[sV];
-                    seen[sV] = true;
-                    return s
-                })
-                console.log('masdf', cMFV)
-                var cTDP = cMFV.map((vertex) => [vertex[0], vertex[2]])
-                var cCHull = convexHull(cTDP);
-                var cCHullPoints = cCHull.map((i) => cTDP[i]);
-                console.log('convexHull', cCHull, cCHullPoints);
-                var cmbv = cCHullPoints.map((v) => BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(v[0], 10, v[1]), mesh.getWorldMatrix()))
-                console.log('mbv1', cmbv)
-                cmbv = cmbv.map((v) => {return {x: v.x, z: v.z}})
-                console.log('mbv', cmbv)
-                var twoDVertices = _.flatten(cmbv.slice(0,3).map((v) => [v.x, v.z]))
-
+                var twoDVertices = getMeshTwoDVertices(mesh);
                 if (polygonPolygon(meshTwoDVertices.map((i)=> _.round(i,2)), twoDVertices.map((i)=> _.round(i,2)))) {
                     console.log('rotate collision!!!', meshTwoDVertices, twoDVertices, mesh.name)
                     return true;
@@ -286,6 +404,7 @@ var showWorldAxis = (size) => {
             }
         };
 
+
         scene.onPointerMove = function (evt) {
             if (mode =="drag") {
                 dragging = true
@@ -311,6 +430,8 @@ var showWorldAxis = (size) => {
                     mbv = mbv.map((v) => {return {x: v.x + diff.x, z: v.z + diff.z}})
                     console.log('mbv', mbv)
                     var meshTwoDVertices = _.flatten(mbv.map((v) => [v.x, v.z]))
+                    console.log('compare', meshTwoDVertices, getMeshTwoDVertices(mP, diff))
+                    meshTwoDVertices = getMeshTwoDVertices(mP, diff);
                     var allowMove = true
                     var oP = {x: mP.position.x, z: mP.position.z};
 
@@ -390,7 +511,7 @@ var showWorldAxis = (size) => {
                 mP.rotate(axis, Math.PI/128, BABYLON.Space.LOCAL);
                 //testo stuffo
 
-            } else if (true) {
+            } else if (checkForCollisions(_.flatten(meshTwoDVertices))) {
                 let movecount = 0
                 while (checkForCollisions(_.flatten(meshTwoDVertices))) {
                     movecount += 1
@@ -445,7 +566,10 @@ var showWorldAxis = (size) => {
                         setTimeout(function () {
                             camera.attachControl(canvas);
                         }, 0);
-            mP = null
+            if (mP) {
+                pieceMeshes[mP.name].twoDVertices = getMeshTwoDVertices(mP);
+                mP = null;
+            }
             mode = null
             if (solution && z >= 7) {
                 if (checkSolved()) {
@@ -478,6 +602,7 @@ mesh.rotate(axis, angle, BABYLON.Space.LOCAL)
 var newMesh = BABYLON.Mesh.MergeMeshes([piece, mesh, centerPoint], true, false, undefined, false, true);
 console.log('axxxx', centerPoint.position)
 newMesh.setPivotPoint(new BABYLON.Vector3(centerPoint.position.x, centerPoint.position.y, centerPoint.position.z ))
+return newMesh;
 
         }
 
@@ -504,6 +629,34 @@ newMesh.setPivotPoint(new BABYLON.Vector3(centerPoint.position.x, centerPoint.po
             window.cp = point;
             return point;
         }
+
+        const getMeshTwoDVertices = (mesh, diff) => {
+            var vertices = _.chunk(mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind), 3);
+            var seen = {};
+            var cMFV = vertices.filter((vertex) => {
+                var sV = JSON.stringify([vertex[0], vertex[2]]);
+                var s = !seen[sV];
+                seen[sV] = true;
+                return s
+            })
+            console.log('masdf', cMFV)
+            var cTDP = cMFV.map((vertex) => [vertex[0], vertex[2]])
+            var cCHull = convexHull(cTDP);
+            var cCHullPoints = cCHull.map((i) => cTDP[i]);
+            console.log('convexHull', cCHull, cCHullPoints);
+            var cmbv = cCHullPoints.map((v) => BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(v[0], 10, v[1]), mesh.getWorldMatrix()))
+            console.log('mbv1', cmbv)
+            if (diff) {
+                cmbv = cmbv.map((v) => {return {x: v.x + diff.x, z: v.z + diff.z}});
+            } else {
+                cmbv = cmbv.map((v) => {return {x: v.x, z: v.z}})
+            }
+            console.log('mbv', cmbv)
+            var twoDVertices = _.flatten(cmbv.slice(0,3).map((v) => [v.x, v.z]));
+            return twoDVertices
+        }
+
+
         addPiece = () => {
             var piece = tangramPieces[z]
             if (!piece) {
@@ -514,14 +667,25 @@ newMesh.setPivotPoint(new BABYLON.Vector3(centerPoint.position.x, centerPoint.po
             if (z % 2 === 0) {
                 offset = -1 * offset;
             }
-            let corners = tangramPieces[z].map((c) => new BABYLON.Vector3(c[0]+offset, c[1]+offset)).reverse()
+            let corners = tangramPieces[z].map((c) => new BABYLON.Vector3(c[0], c[1])).reverse()
             var poly_tri = new BABYLON.PolygonMeshBuilder(`poly${z}`, corners, scene);
             var polygon = poly_tri.build(null, 9);
             //polygon.physicsImpostor = new BABYLON.PhysicsImpostor(polygon, BABYLON.PhysicsImpostor.MeshImpostor, { mass: 0.0001, friction: 10.0, restitution: 0 }, scene);
             polygon.position.y = 10;
             polygon.material = _.sample(materials);
             var centerPoint = addCenterPointToMesh(tangramPieces[z])
-            addRotateControlToPiece(polygon, centerPoint);
+            polygon = addRotateControlToPiece(polygon, centerPoint);
+            polygon.position.z = polygon.position.z + offset;
+            polygon.position.x = polygon.position.x + offset;
+            pieceMeshes[polygon.name] = {name: polygon.name, mesh: polygon, twoDVertices: getMeshTwoDVertices(polygon)};
+            var twoDVertices = getMeshTwoDVertices(polygon);
+            var mc = 0
+            while (checkForCollisions(twoDVertices, polygon.name) && mc < 100) {
+                twoDVertices = getMeshTwoDVertices(polygon, mc + 5);
+                console.log('pz', polygon.position.z)
+                mc += 1
+            }
+            polygon.position.z = mc + 5;
 
             z += 1
         }

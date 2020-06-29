@@ -18,6 +18,8 @@
     "dev": "webpack-dev-server --content-base public"
   },
   "dependencies": {
+    "@turf/helpers": "^6.1.4",
+    "@turf/nearest-point-to-line": "^6.0.0",
     "ammo.js": "github:kripken/ammo.js#aab297a4164779c3a9d8dc8d9da26958de3cb778",
     "babylonjs": "^4.1.0",
     "babylonjs-gui": "^4.1.0",
